@@ -336,6 +336,11 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
         # Use nvdslogger for perf measurement instead of probe function
         print ("Creating nvdslogger \n")
         nvdslogger = Gst.ElementFactory.make("nvdslogger", "nvdslogger")
+    
+    print("Creating nvtracker \n ")
+    tracker = Gst.ElementFactory.make("nvtracker", "tracker")
+    if not tracker:
+        sys.stderr.write(" Unable to create tracker \n")
 
     # Add nvvidconv1 and filter1 to convert the frames to RGBA
     # which is easier to work with in Python.
@@ -422,8 +427,36 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
     tiler.set_property("height", TILED_OUTPUT_HEIGHT)
     sink.set_property("qos",0)
 
+    config = configparser.ConfigParser()
+    config.read('tracker_config.txt')
+    config.sections()
+
+    for key in config['tracker']:
+        if key == 'tracker-width':
+            tracker_width = config.getint('tracker', key)
+            tracker.set_property('tracker-width', tracker_width)
+        if key == 'tracker-height':
+            tracker_height = config.getint('tracker', key)
+            tracker.set_property('tracker-height', tracker_height)
+        if key == 'gpu-id':
+            tracker_gpu_id = config.getint('tracker', key)
+            tracker.set_property('gpu_id', tracker_gpu_id)
+        if key == 'll-lib-file':
+            tracker_ll_lib_file = config.get('tracker', key)
+            tracker.set_property('ll-lib-file', tracker_ll_lib_file)
+        if key == 'll-config-file':
+            tracker_ll_config_file = config.get('tracker', key)
+            tracker.set_property('ll-config-file', tracker_ll_config_file)
+        if key == 'enable-batch-process':
+            tracker_enable_batch_process = config.getint('tracker', key)
+            tracker.set_property('enable_batch_process', tracker_enable_batch_process)
+        if key == 'enable-past-frame':
+            tracker_enable_past_frame = config.getint('tracker', key)
+            tracker.set_property('enable_past_frame', tracker_enable_past_frame)
+
     print("Adding elements to Pipeline \n")
     pipeline.add(pgie)
+    pipeline.add(tracker)
     pipeline.add(tiler)
     pipeline.add(nvvidconv)
     pipeline.add(filter1)
@@ -433,7 +466,8 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
 
     print("Linking elements in the Pipeline \n")
     streammux.link(pgie)
-    pgie.link(nvvidconv1)
+    pgie.link(tracker)
+    tracker.link(nvvidconv1)
     nvvidconv1.link(filter1)
     filter1.link(tiler)
     tiler.link(nvvidconv)
