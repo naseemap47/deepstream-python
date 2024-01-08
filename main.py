@@ -55,7 +55,7 @@ OSD_PROCESS_MODE= 0
 OSD_DISPLAY_TEXT= 1
 MIN_CONFIDENCE = 0.25
 
-class_names = open('/home/orin/main/labels.txt', 'r').read().splitlines()
+class_names = open('labels.txt', 'r').read().splitlines()
 colors = [[random.randint(0, 255) for _ in range(3)] for _ in class_names]
 
 def plot_one_box(x, img, color=None, label=None, line_thickness=3):
@@ -369,8 +369,8 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
         print("At least one of the sources is live")
         streammux.set_property('live-source', 1)
 
-    streammux.set_property('width', 640)
-    streammux.set_property('height', 640)
+    streammux.set_property('width', 1920)
+    streammux.set_property('height', 1080)
     streammux.set_property('batch-size', number_sources)
     streammux.set_property('batched-push-timeout', 4000000)
     if requested_pgie == "nvinferserver" and config != None:
@@ -380,7 +380,7 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
     elif requested_pgie == "nvinfer" and config != None:
         pgie.set_property('config-file-path', config)
     else:
-        pgie.set_property('config-file-path', "/home/orin/main/config_infer_primary_yoloV8.txt")
+        pgie.set_property('config-file-path', "config_infer_primary_yoloV8.txt")
     pgie_batch_size=pgie.get_property("batch-size")
     if(pgie_batch_size != number_sources):
         print("WARNING: Overriding infer-config batch-size",pgie_batch_size," with number of sources ", number_sources," \n")
@@ -394,7 +394,7 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
     sink.set_property("qos",0)
 
     config = configparser.ConfigParser()
-    config.read('/home/orin/main/tracker_config.txt')
+    config.read('tracker_config.txt')
     config.sections()
 
     for key in config['tracker']:
@@ -564,4 +564,3 @@ def parse_args():
 if __name__ == '__main__':
     stream_paths, pgie, config, disable_probe = parse_args()
     sys.exit(main(stream_paths, pgie, config, disable_probe))
-
