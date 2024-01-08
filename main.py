@@ -38,7 +38,7 @@ import cv2
 import random
 import numpy as np
 import pyds
-import serial
+
 
 no_display = False
 silent = False
@@ -55,19 +55,8 @@ OSD_PROCESS_MODE= 0
 OSD_DISPLAY_TEXT= 1
 MIN_CONFIDENCE = 0.25
 
-# Configure the serial port
-ser = serial.Serial('/dev/ttyUSB0', baudrate=9600) 
-
-class_names = open('labels.txt', 'r').read().splitlines()
+class_names = open('/home/orin/main/labels.txt', 'r').read().splitlines()
 colors = [[random.randint(0, 255) for _ in range(3)] for _ in class_names]
-
-# roi_file = open('data.txt', 'r').read().splitlines()
-# roi_list = []
-# for line in roi_file:
-#     roi_list.append([int(x) for x in line.split(',')])
-# print(roi_list[0])
-ptsL = np.array([542,619,1334,391,1774,772,962,1018,592,827], np.int32)
-ptsL = ptsL.reshape((-1,1,2))
 
 def plot_one_box(x, img, color=None, label=None, line_thickness=3):
     # Plots one bounding box on image img
@@ -83,8 +72,8 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=3):
         cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
 
 
-def draw_bounding_boxes(image, obj_meta, confidence):
-    confidence = '{0:.2f}'.format(confidence)
+def draw_bounding_boxes(image, obj_meta, conf, track_id):
+    # confidence = '{0:.2f}'.format(confidence)
     rect_params = obj_meta.rect_params
     top = int(rect_params.top)
     left = int(rect_params.left)
@@ -93,7 +82,7 @@ def draw_bounding_boxes(image, obj_meta, confidence):
     obj_name = class_names[obj_meta.class_id]
     plot_one_box(
         [left, top, left+width, top+height], image, 
-        colors[obj_meta.class_id], f'{obj_name} {confidence}', 3
+        colors[obj_meta.class_id], f'{obj_name} {conf:.2} {track_id}', 3
     )
     return image
 
@@ -101,8 +90,11 @@ def draw_bounding_boxes(image, obj_meta, confidence):
 # tiler_sink_pad_buffer_probe  will extract metadata received on tiler src pad
 # and update params for drawing rectangle, object information etc.
 def tiler_sink_pad_buffer_probe(pad, info, u_data):
-    # frame_number = 0
-    # num_rects = 0
+    global feedback
+    global global_motor_id
+    global success
+    global c
+    # bolts = 0
     gst_buffer = info.get_buffer()
     if not gst_buffer:
         print("Unable to get GstBuffer ")
@@ -116,13 +108,13 @@ def tiler_sink_pad_buffer_probe(pad, info, u_data):
     l_frame = batch_meta.frame_meta_list
     while l_frame is not None:
         try:
+            # ser.write("Y:1\r".encode())
             # Note that l_frame.data needs a cast to pyds.NvDsFrameMeta
             # The casting is done by pyds.NvDsFrameMeta.cast()
             # The casting also keeps ownership of the underlying memory
             # in the C code, so the Python garbage collector will leave
             # it alone.
             frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
-            obj_present = 0
         except StopIteration:
             break
 
@@ -136,62 +128,36 @@ def tiler_sink_pad_buffer_probe(pad, info, u_data):
             except StopIteration:
                 break
             # obj_counter[obj_meta.class_id] += 1
-            if MIN_CONFIDENCE < obj_meta.confidence:
-                # print('Batch ID: ', frame_meta.batch_id)
-                n_frame = pyds.get_nvds_buf_surface(hash(gst_buffer), frame_meta.batch_id)
-                # n_frame = draw_bounding_boxes(n_frame, obj_meta, obj_meta.confidence)
-                # Tracking
-                print('Track ID: ', obj_meta.object_id)
-                # conf = obj_meta.confidence
-                rect_params = obj_meta.rect_params
-                top = int(rect_params.top)
-                left = int(rect_params.left)
-                width = int(rect_params.width)
-                height = int(rect_params.height)
-                # class_id = obj_meta.class_id
-                # obj_name = class_names[class_id]
-                # [left, top, left+width, top+height]
-                # cv2.circle(
-                #     n_frame, (left+width, top+height), 5,
-                #     (0, 225, 0), cv2.FILLED
-                # )
-                cv2.polylines(n_frame, [ptsL], True, (255,165,0), 2)
-                inside_out1 = cv2.pointPolygonTest(ptsL, (left+width, top+height), False)
-                inside_out2 = cv2.pointPolygonTest(ptsL, (left, top+height), False)
-                # print(inside_out1, inside_out2)
-                if inside_out1 > 0 or inside_out2 > 0:
-                    obj_present += 1
-                # convert python array into numpy array format in the copy mode.
-                frame_copy = np.array(n_frame, copy=True, order='C')
-                # convert the array into cv2 default color format
-                frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_RGBA2BGRA)
-                if is_aarch64(): # If Jetson, since the buffer is mapped to CPU for retrieval, it must also be unmapped 
-                    pyds.unmap_nvds_buf_surface(hash(gst_buffer), frame_meta.batch_id) # The unmap call should be made after operations with the original array are complete.
-                                                                                                #  The original array cannot be accessed after this call.
-
-                # save_image = True
-
+            # if MIN_CONFIDENCE < obj_meta.confidence:
+            # print('Batch ID: ', frame_meta.batch_id)
+            # OpenCV Image
+            n_frame = pyds.get_nvds_buf_surface(hash(gst_buffer), frame_meta.batch_id)
+            # n_frame = draw_bounding_boxes(n_frame, obj_meta, obj_meta.confidence, obj_meta.object_id)
+            
+            # Tracking
+            # print('Track ID: ', obj_meta.object_id)
+            track_id = obj_meta.object_id
+            # conf = obj_meta.confidence
+            rect_params = obj_meta.rect_params
+            top = int(rect_params.top)
+            left = int(rect_params.left)
+            width = int(rect_params.width)
+            height = int(rect_params.height)
+            class_id = obj_meta.class_id
+            
             try:
                 l_obj = l_obj.next
             except StopIteration:
-                ser.close()
                 break
-
+        
+        # FPS
         stream_index = "stream{0}".format(frame_meta.pad_index)
         global perf_data
         perf_data.update_fps(stream_index)
-        # if save_image:
-        #     img_path = "{}/stream_{}/frame_{}.jpg".format(folder_name, frame_meta.pad_index, frame_number)
-        # cv2.imwrite('sample_out.jpg', frame_copy)
-        # saved_count["stream_{}".format(frame_meta.pad_index)] += 1
-        if obj_present > 0:
-            ser.write("R:1\r".encode())
-        else:
-            ser.write("R:0\r".encode())
+        
         try:
             l_frame = l_frame.next
         except StopIteration:
-            ser.close()
             break
 
     return Gst.PadProbeReturn.OK
@@ -336,7 +302,7 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
         # Use nvdslogger for perf measurement instead of probe function
         print ("Creating nvdslogger \n")
         nvdslogger = Gst.ElementFactory.make("nvdslogger", "nvdslogger")
-    
+
     print("Creating nvtracker \n ")
     tracker = Gst.ElementFactory.make("nvtracker", "tracker")
     if not tracker:
@@ -374,7 +340,7 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
     if file_loop:
         if is_aarch64():
             # Set nvbuf-memory-type=4 for aarch64 for file-loop (nvurisrcbin case)
-            streammux.set_property('nvbuf-memory-type', 4)
+            streammux.set_property('nvbuf-memory-type', 0)
         else:
             # Set nvbuf-memory-type=2 for x86 for file-loop (nvurisrcbin case)
             streammux.set_property('nvbuf-memory-type', 2)
@@ -403,8 +369,8 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
         print("At least one of the sources is live")
         streammux.set_property('live-source', 1)
 
-    streammux.set_property('width', 1920)
-    streammux.set_property('height', 1080)
+    streammux.set_property('width', 640)
+    streammux.set_property('height', 640)
     streammux.set_property('batch-size', number_sources)
     streammux.set_property('batched-push-timeout', 4000000)
     if requested_pgie == "nvinferserver" and config != None:
@@ -414,7 +380,7 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
     elif requested_pgie == "nvinfer" and config != None:
         pgie.set_property('config-file-path', config)
     else:
-        pgie.set_property('config-file-path', "config_infer_primary_yoloV8.txt")
+        pgie.set_property('config-file-path', "/home/orin/main/config_infer_primary_yoloV8.txt")
     pgie_batch_size=pgie.get_property("batch-size")
     if(pgie_batch_size != number_sources):
         print("WARNING: Overriding infer-config batch-size",pgie_batch_size," with number of sources ", number_sources," \n")
@@ -428,7 +394,7 @@ def main(args, requested_pgie=None, config=None, disable_probe=False):
     sink.set_property("qos",0)
 
     config = configparser.ConfigParser()
-    config.read('tracker_config.txt')
+    config.read('/home/orin/main/tracker_config.txt')
     config.sections()
 
     for key in config['tracker']:
@@ -514,7 +480,16 @@ def parse_args():
         help="Path to input streams",
         nargs="+",
         metavar="URIs",
-        default=["rtsp://admin:eternaler4444@192.168.29.185:554/cam/realmonitor?channel=1&subtype=0"],
+        default=[
+            "rtsp://admin:eternaler4444@192.168.29.185:554/cam/realmonitor?channel=1&subtype=0",
+            "rtsp://admin:eternaler4444@192.168.29.185:554/cam/realmonitor?channel=1&subtype=0",
+            "rtsp://admin:eternaler4444@192.168.29.185:554/cam/realmonitor?channel=1&subtype=0",
+            "rtsp://admin:eternaler4444@192.168.29.185:554/cam/realmonitor?channel=1&subtype=0",
+            # "file:///home/orin/Videos/1.mp4",
+            # "file:///home/orin/Videos/2.mp4",
+            # "file:///home/orin/Videos/3.mp4",
+            # "file:///home/orin/Videos/4.mp4",
+        ],
         required=False,
     )
     parser.add_argument(
